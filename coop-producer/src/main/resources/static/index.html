@@ -1,0 +1,332 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Cooperativa Agrícola — Painel RabbitMQ</title>
+  <link rel="stylesheet" href="/styles.css" />
+</head>
+<body>
+  <header class="topbar">
+    <div class="topbar-title">
+      <h1>Cooperativa Agrícola — Mensageria RabbitMQ</h1>
+      <p>Painel de disparo de eventos, topologia Topic Exchange e efeitos dos 5 consumidores</p>
+    </div>
+    <div class="topbar-actions">
+      <label class="toggle-label">
+        <input type="checkbox" id="autoRefreshToggle" checked />
+        Atualizar a cada 2s
+      </label>
+      <button type="button" id="refreshBtn" class="btn btn-secondary">Atualizar agora</button>
+      <a href="http://localhost:15672" target="_blank" rel="noopener noreferrer" class="btn btn-outline">
+        Abrir RabbitMQ UI (:15672)
+      </a>
+    </div>
+  </header>
+
+  <section class="status-strip" id="statusStrip" aria-label="Status dos serviços"></section>
+
+  <main class="container">
+    <section class="grid-2">
+      <!-- Produtor -->
+      <article class="card">
+        <div class="card-header">
+          <h2>Produtor de Eventos (<code>coop-producer :8180</code>)</h2>
+          <span class="badge badge-info">coop.events.topic</span>
+        </div>
+
+        <div class="form-grid">
+          <label>
+            Lote
+            <input type="text" id="inputLote" placeholder="Ex.: LOTE-2026-101 (opcional)" />
+          </label>
+          <label>
+            Cooperado
+            <input type="text" id="inputCooperado" placeholder="Ex.: Fazenda Boa Vista" />
+          </label>
+          <label>
+            Produto
+            <select id="inputProduto">
+              <option value="SOJA">SOJA</option>
+              <option value="MILHO">MILHO</option>
+              <option value="TRIGO">TRIGO</option>
+              <option value="CAFE">CAFE</option>
+            </select>
+          </label>
+          <label>
+            Peso Líquido (kg)
+            <input type="number" step="0.01" id="inputPeso" value="15000.00" />
+          </label>
+          <label class="span-2">
+            Motivo (para recusa / reprovação)
+            <input type="text" id="inputMotivo" placeholder="Ex.: Umidade acima do limite aceito (21,5%)" />
+          </label>
+          <label class="span-2">
+            eventId (opcional — deixe vazio para gerar UUID; informe um existente para testar duplicidade)
+            <input type="text" id="inputEventId" placeholder="UUID automático se vazio" />
+          </label>
+        </div>
+
+        <div class="section-subtitle">4 Eventos Obrigatórios</div>
+        <div class="event-buttons">
+          <button type="button" class="btn btn-green" data-endpoint="carga-recebida" data-rk="carga.recebida">
+            Carga Recebida<small>carga.recebida</small>
+          </button>
+          <button type="button" class="btn btn-amber" data-endpoint="carga-recusada" data-rk="carga.recusada">
+            Carga Recusada<small>carga.recusada</small>
+          </button>
+          <button type="button" class="btn btn-blue" data-endpoint="analise-aprovada" data-rk="analise.aprovada">
+            Análise Aprovada<small>analise.aprovada</small>
+          </button>
+          <button type="button" class="btn btn-red" data-endpoint="analise-reprovada" data-rk="analise.reprovada">
+            Análise Reprovada<small>analise.reprovada</small>
+          </button>
+        </div>
+
+        <div class="divider"></div>
+        <div class="section-subtitle">Testes das Etapas 3 e 5 (Concorrência, Duplicidade e Extensibilidade)</div>
+
+        <div class="action-row">
+          <button type="button" id="batchBtn" class="btn btn-indigo">
+            Disparar Lote Concorrente (6 cargas)
+          </button>
+        </div>
+
+        <div class="replay-box">
+          <select id="replaySelect">
+            <option value="">Selecione um evento publicado para republicar...</option>
+          </select>
+          <button type="button" id="replayBtn" class="btn btn-purple">
+            Republicar Mesmo eventId (Duplicidade)
+          </button>
+        </div>
+
+        <div class="custom-box">
+          <div class="custom-inputs">
+            <input type="text" id="customRoutingKey" placeholder="routingKey (ex.: analise.reavaliada)" />
+            <input type="text" id="customEventType" placeholder="eventType (ex.: ANALISE_REAVALIADA)" />
+            <button type="button" id="customPublishBtn" class="btn btn-secondary">Publicar Customizado</button>
+          </div>
+          <div class="preset-links">
+            <span>Atalhos:</span>
+            <button type="button" class="link-btn" data-preset-rk="analise.reavaliada" data-preset-type="ANALISE_REAVALIADA">
+              Novo fato da família (analise.reavaliada)
+            </button>
+            <button type="button" class="link-btn" data-preset-rk="faturamento.emitido" data-preset-type="FATURAMENTO_EMITIDO">
+              Evento sem regra específica (faturamento.emitido)
+            </button>
+          </div>
+        </div>
+
+        <div id="feedbackBanner" class="feedback hidden"></div>
+      </article>
+
+      <!-- Matriz + Último JSON -->
+      <article class="card">
+        <div class="card-header">
+          <h2>Matriz de Roteamento &amp; Contrato JSON</h2>
+          <span class="badge badge-neutral" id="routingPreviewLabel">Selecione/dispare um evento</span>
+        </div>
+
+        <div class="table-wrap">
+          <table class="matrix-table" id="routingMatrix">
+            <thead>
+              <tr>
+                <th>Consumidor</th>
+                <th>Binding</th>
+                <th>Previsto</th>
+              </tr>
+            </thead>
+            <tbody>
+              <tr data-consumer="recepcao">
+                <td>1. Recepção</td>
+                <td><code>carga.recebida</code></td>
+                <td class="matrix-flag">—</td>
+              </tr>
+              <tr data-consumer="comunicacao">
+                <td>2. Comunicação</td>
+                <td><code>carga.recebida</code>, <code>carga.recusada</code>, <code>analise.reprovada</code></td>
+                <td class="matrix-flag">—</td>
+              </tr>
+              <tr data-consumer="qualidade">
+                <td>3. Qualidade</td>
+                <td><code>analise.*</code></td>
+                <td class="matrix-flag">—</td>
+              </tr>
+              <tr data-consumer="auditoria">
+                <td>4. Auditoria</td>
+                <td><code>#</code></td>
+                <td class="matrix-flag">—</td>
+              </tr>
+              <tr data-consumer="indicadores">
+                <td>5. Indicadores (2x)</td>
+                <td><code>carga.recebida</code></td>
+                <td class="matrix-flag">—</td>
+              </tr>
+            </tbody>
+          </table>
+        </div>
+
+        <div class="section-subtitle">Último Evento JSON Publicado</div>
+        <pre class="json-box" id="lastJsonBox">Nenhum evento disparado nesta sessão ainda.</pre>
+      </article>
+    </section>
+
+    <!-- Filas RabbitMQ -->
+    <section class="card">
+      <div class="card-header">
+        <h2>Filas do RabbitMQ (Tempo Real)</h2>
+        <span class="badge badge-neutral">Exchange: coop.events.topic</span>
+      </div>
+      <div class="table-wrap">
+        <table>
+          <thead>
+            <tr>
+              <th>Fila</th>
+              <th>Consumidores</th>
+              <th>Pendentes (Ready)</th>
+              <th>Não Confirmadas (Unacked)</th>
+              <th>Durável</th>
+            </tr>
+          </thead>
+          <tbody id="queuesTableBody">
+            <tr><td colspan="5" class="muted">Carregando filas...</td></tr>
+          </tbody>
+        </table>
+      </div>
+    </section>
+
+    <!-- Consumidores 1, 2, 3, 5 -->
+    <section class="grid-2">
+      <article class="card">
+        <div class="card-header">
+          <h2>1. Recepção — Tickets de Pesagem</h2>
+          <span class="badge badge-neutral" id="badgeRecepcao">—</span>
+        </div>
+        <div class="table-wrap scroll-sm">
+          <table>
+            <thead>
+              <tr>
+                <th>Lote</th>
+                <th>Produto</th>
+                <th>Peso (kg)</th>
+                <th>Cooperado</th>
+                <th>eventId</th>
+              </tr>
+            </thead>
+            <tbody id="recepcaoBody"></tbody>
+          </table>
+        </div>
+      </article>
+
+      <article class="card">
+        <div class="card-header">
+          <h2>2. Comunicação — Avisos aos Cooperados</h2>
+          <span class="badge badge-neutral" id="badgeComunicacao">—</span>
+        </div>
+        <div id="comunicacaoOfflineAlert" class="offline-alert hidden">
+          Consumidor de Comunicação está <strong>OFFLINE</strong>. Novos eventos compatíveis ficam retidos em
+          <code>coop.comunicacao.queue</code> até ele ser religado!
+        </div>
+        <div class="table-wrap scroll-sm">
+          <table>
+            <thead>
+              <tr>
+                <th>Tipo</th>
+                <th>Lote</th>
+                <th>Cooperado</th>
+                <th>Mensagem / Motivo</th>
+                <th>eventId</th>
+              </tr>
+            </thead>
+            <tbody id="comunicacaoBody"></tbody>
+          </table>
+        </div>
+      </article>
+
+      <article class="card">
+        <div class="card-header">
+          <h2>3. Qualidade — Resultados de Análises</h2>
+          <span class="badge badge-neutral" id="badgeQualidade">—</span>
+        </div>
+        <div class="table-wrap scroll-sm">
+          <table>
+            <thead>
+              <tr>
+                <th>Resultado</th>
+                <th>Routing Key</th>
+                <th>Lote</th>
+                <th>Produto</th>
+                <th>Motivo</th>
+                <th>eventId</th>
+              </tr>
+            </thead>
+            <tbody id="qualidadeBody"></tbody>
+          </table>
+        </div>
+      </article>
+
+      <article class="card">
+        <div class="card-header">
+          <h2>5. Indicadores de Recepção (2 Instâncias)</h2>
+          <span class="badge badge-neutral" id="badgeIndicadores">—</span>
+        </div>
+
+        <div class="totais-grid" id="indicadoresTotaisGrid"></div>
+        <div class="distribuicao-bar" id="distribuicaoBar"></div>
+
+        <div class="table-wrap scroll-xs">
+          <table>
+            <thead>
+              <tr>
+                <th>Instância</th>
+                <th>Status</th>
+                <th>Lote</th>
+                <th>Produto</th>
+                <th>Peso (kg)</th>
+                <th>eventId</th>
+              </tr>
+            </thead>
+            <tbody id="indicadoresExecucoesBody"></tbody>
+          </table>
+        </div>
+      </article>
+    </section>
+
+    <!-- Consumidor 4: Auditoria -->
+    <section class="card">
+      <div class="card-header">
+        <h2>4. Auditoria da Cooperativa — Histórico Completo (<code>#</code>)</h2>
+        <span class="badge badge-neutral" id="badgeAuditoria">—</span>
+      </div>
+
+      <div class="audit-filters">
+        <input type="text" id="filterEventId" placeholder="Filtrar por eventId" />
+        <input type="text" id="filterEventType" placeholder="Filtrar por eventType (ex.: CARGA_RECEBIDA)" />
+        <input type="text" id="filterInicio" placeholder="Início ISO (ex.: 2026-11-24T00:00:00Z)" />
+        <input type="text" id="filterFim" placeholder="Fim ISO (ex.: 2026-11-24T23:59:59Z)" />
+        <button type="button" id="applyAuditFilterBtn" class="btn btn-secondary">Filtrar</button>
+        <button type="button" id="clearAuditFilterBtn" class="btn btn-outline">Limpar</button>
+      </div>
+
+      <div class="table-wrap scroll-md">
+        <table>
+          <thead>
+            <tr>
+              <th>eventId</th>
+              <th>Tipo</th>
+              <th>Routing Key</th>
+              <th>Ocorrência (occurredAt)</th>
+              <th>Entregas</th>
+              <th>Payload</th>
+            </tr>
+          </thead>
+          <tbody id="auditoriaBody"></tbody>
+        </table>
+      </div>
+    </section>
+  </main>
+
+  <script src="/app.js"></script>
+</body>
+</html>

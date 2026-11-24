@@ -1,0 +1,232 @@
+{
+  "rabbit_version": "3.13.0",
+  "users": [
+    {
+      "name": "coop",
+      "password_hash": "lHJT4TiEIJUjxkYVD34OrolJ4zo5pKrRqzBGm96BAMHEBBv0",
+      "hashing_algorithm": "rabbit_password_hashing_sha256",
+      "tags": [
+        "administrator"
+      ]
+    }
+  ],
+  "vhosts": [
+    {
+      "name": "/"
+    }
+  ],
+  "permissions": [
+    {
+      "user": "coop",
+      "vhost": "/",
+      "configure": ".*",
+      "write": ".*",
+      "read": ".*"
+    }
+  ],
+  "exchanges": [
+    {
+      "name": "coop.events.topic",
+      "vhost": "/",
+      "type": "topic",
+      "durable": true,
+      "auto_delete": false,
+      "internal": false,
+      "arguments": {}
+    },
+    {
+      "name": "coop.events.dlx",
+      "vhost": "/",
+      "type": "direct",
+      "durable": true,
+      "auto_delete": false,
+      "internal": false,
+      "arguments": {}
+    }
+  ],
+  "queues": [
+    {
+      "name": "coop.recepcao.queue",
+      "vhost": "/",
+      "durable": true,
+      "auto_delete": false,
+      "arguments": {
+        "x-dead-letter-exchange": "coop.events.dlx",
+        "x-dead-letter-routing-key": "coop.recepcao.dlq"
+      }
+    },
+    {
+      "name": "coop.comunicacao.queue",
+      "vhost": "/",
+      "durable": true,
+      "auto_delete": false,
+      "arguments": {
+        "x-dead-letter-exchange": "coop.events.dlx",
+        "x-dead-letter-routing-key": "coop.comunicacao.dlq"
+      }
+    },
+    {
+      "name": "coop.qualidade.queue",
+      "vhost": "/",
+      "durable": true,
+      "auto_delete": false,
+      "arguments": {
+        "x-dead-letter-exchange": "coop.events.dlx",
+        "x-dead-letter-routing-key": "coop.qualidade.dlq"
+      }
+    },
+    {
+      "name": "coop.auditoria.queue",
+      "vhost": "/",
+      "durable": true,
+      "auto_delete": false,
+      "arguments": {
+        "x-dead-letter-exchange": "coop.events.dlx",
+        "x-dead-letter-routing-key": "coop.auditoria.dlq"
+      }
+    },
+    {
+      "name": "coop.indicadores.queue",
+      "vhost": "/",
+      "durable": true,
+      "auto_delete": false,
+      "arguments": {
+        "x-dead-letter-exchange": "coop.events.dlx",
+        "x-dead-letter-routing-key": "coop.indicadores.dlq"
+      }
+    },
+    {
+      "name": "coop.recepcao.dlq",
+      "vhost": "/",
+      "durable": true,
+      "auto_delete": false,
+      "arguments": {}
+    },
+    {
+      "name": "coop.comunicacao.dlq",
+      "vhost": "/",
+      "durable": true,
+      "auto_delete": false,
+      "arguments": {}
+    },
+    {
+      "name": "coop.qualidade.dlq",
+      "vhost": "/",
+      "durable": true,
+      "auto_delete": false,
+      "arguments": {}
+    },
+    {
+      "name": "coop.auditoria.dlq",
+      "vhost": "/",
+      "durable": true,
+      "auto_delete": false,
+      "arguments": {}
+    },
+    {
+      "name": "coop.indicadores.dlq",
+      "vhost": "/",
+      "durable": true,
+      "auto_delete": false,
+      "arguments": {}
+    }
+  ],
+  "bindings": [
+    {
+      "source": "coop.events.topic",
+      "vhost": "/",
+      "destination": "coop.recepcao.queue",
+      "destination_type": "queue",
+      "routing_key": "carga.recebida",
+      "arguments": {}
+    },
+    {
+      "source": "coop.events.topic",
+      "vhost": "/",
+      "destination": "coop.comunicacao.queue",
+      "destination_type": "queue",
+      "routing_key": "carga.recebida",
+      "arguments": {}
+    },
+    {
+      "source": "coop.events.topic",
+      "vhost": "/",
+      "destination": "coop.comunicacao.queue",
+      "destination_type": "queue",
+      "routing_key": "carga.recusada",
+      "arguments": {}
+    },
+    {
+      "source": "coop.events.topic",
+      "vhost": "/",
+      "destination": "coop.comunicacao.queue",
+      "destination_type": "queue",
+      "routing_key": "analise.reprovada",
+      "arguments": {}
+    },
+    {
+      "source": "coop.events.topic",
+      "vhost": "/",
+      "destination": "coop.qualidade.queue",
+      "destination_type": "queue",
+      "routing_key": "analise.*",
+      "arguments": {}
+    },
+    {
+      "source": "coop.events.topic",
+      "vhost": "/",
+      "destination": "coop.auditoria.queue",
+      "destination_type": "queue",
+      "routing_key": "#",
+      "arguments": {}
+    },
+    {
+      "source": "coop.events.topic",
+      "vhost": "/",
+      "destination": "coop.indicadores.queue",
+      "destination_type": "queue",
+      "routing_key": "carga.recebida",
+      "arguments": {}
+    },
+    {
+      "source": "coop.events.dlx",
+      "vhost": "/",
+      "destination": "coop.recepcao.dlq",
+      "destination_type": "queue",
+      "routing_key": "coop.recepcao.dlq",
+      "arguments": {}
+    },
+    {
+      "source": "coop.events.dlx",
+      "vhost": "/",
+      "destination": "coop.comunicacao.dlq",
+      "destination_type": "queue",
+      "routing_key": "coop.comunicacao.dlq",
+      "arguments": {}
+    },
+    {
+      "source": "coop.events.dlx",
+      "vhost": "/",
+      "destination": "coop.qualidade.dlq",
+      "destination_type": "queue",
+      "routing_key": "coop.qualidade.dlq",
+      "arguments": {}
+    },
+    {
+      "source": "coop.events.dlx",
+      "vhost": "/",
+      "destination": "coop.auditoria.dlq",
+      "destination_type": "queue",
+      "routing_key": "coop.auditoria.dlq",
+      "arguments": {}
+    },
+    {
+      "source": "coop.events.dlx",
+      "vhost": "/",
+      "destination": "coop.indicadores.dlq",
+      "destination_type": "queue",
+      "routing_key": "coop.indicadores.dlq",
+      "arguments": {}
+    }
+  ]
+}

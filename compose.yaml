@@ -1,0 +1,227 @@
+x-app-env: &app-env
+  DB_HOST: postgres
+  DB_PORT: 5432
+  DB_NAME: cooperativa
+  DB_USER: coop
+  DB_PASSWORD: coop
+  RABBITMQ_HOST: rabbitmq
+  RABBITMQ_PORT: 5672
+  RABBITMQ_USER: coop
+  RABBITMQ_PASSWORD: coop
+
+services:
+  rabbitmq:
+    image: rabbitmq:3-management-alpine
+    container_name: coop-rabbitmq
+    ports:
+      - "5672:5672"
+      - "15672:15672"
+    environment:
+      RABBITMQ_DEFAULT_USER: coop
+      RABBITMQ_DEFAULT_PASS: coop
+      RABBITMQ_DEFAULT_VHOST: /
+    volumes:
+      - ./rabbitmq/rabbitmq.conf:/etc/rabbitmq/rabbitmq.conf:ro
+      - ./rabbitmq/definitions.json:/etc/rabbitmq/definitions.json:ro
+      - rabbitmq_data:/var/lib/rabbitmq
+    healthcheck:
+      test: ["CMD", "rabbitmq-diagnostics", "-q", "check_port_connectivity"]
+      interval: 5s
+      timeout: 5s
+      retries: 20
+
+  postgres:
+    image: postgres:16-alpine
+    container_name: coop-postgres
+    ports:
+      - "5432:5432"
+    environment:
+      POSTGRES_DB: cooperativa
+      POSTGRES_USER: coop
+      POSTGRES_PASSWORD: coop
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U coop -d cooperativa"]
+      interval: 5s
+      timeout: 5s
+      retries: 20
+
+  producer:
+    build:
+      context: .
+      target: producer
+    container_name: coop-producer
+    ports:
+      - "8180:8180"
+    environment:
+      <<: *app-env
+      SERVER_PORT: 8180
+      COOP_RECEPCAO_URL: http://recepcao:8181
+      COOP_COMUNICACAO_URL: http://comunicacao:8182
+      COOP_QUALIDADE_URL: http://qualidade:8183
+      COOP_AUDITORIA_URL: http://auditoria:8184
+      COOP_INDICADORES_1_URL: http://indicadores-1:8185
+      COOP_INDICADORES_2_URL: http://indicadores-2:8186
+      RABBITMQ_MGMT_URL: http://rabbitmq:15672
+    depends_on:
+      rabbitmq:
+        condition: service_healthy
+      postgres:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD-SHELL", "wget -qO- http://127.0.0.1:8180/actuator/health | grep -q UP"]
+      interval: 5s
+      timeout: 5s
+      retries: 20
+      start_period: 15s
+
+  recepcao:
+    build:
+      context: .
+      target: recepcao
+    container_name: coop-consumer-recepcao
+    ports:
+      - "8181:8181"
+    environment:
+      <<: *app-env
+      SERVER_PORT: 8181
+    depends_on:
+      rabbitmq:
+        condition: service_healthy
+      postgres:
+        condition: service_healthy
+      producer:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD-SHELL", "wget -qO- http://127.0.0.1:8181/actuator/health | grep -q UP"]
+      interval: 5s
+      timeout: 5s
+      retries: 20
+      start_period: 15s
+
+  comunicacao:
+    build:
+      context: .
+      target: comunicacao
+    container_name: coop-consumer-comunicacao
+    ports:
+      - "8182:8182"
+    environment:
+      <<: *app-env
+      SERVER_PORT: 8182
+    depends_on:
+      rabbitmq:
+        condition: service_healthy
+      postgres:
+        condition: service_healthy
+      producer:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD-SHELL", "wget -qO- http://127.0.0.1:8182/actuator/health | grep -q UP"]
+      interval: 5s
+      timeout: 5s
+      retries: 20
+      start_period: 15s
+
+  qualidade:
+    build:
+      context: .
+      target: qualidade
+    container_name: coop-consumer-qualidade
+    ports:
+      - "8183:8183"
+    environment:
+      <<: *app-env
+      SERVER_PORT: 8183
+    depends_on:
+      rabbitmq:
+        condition: service_healthy
+      postgres:
+        condition: service_healthy
+      producer:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD-SHELL", "wget -qO- http://127.0.0.1:8183/actuator/health | grep -q UP"]
+      interval: 5s
+      timeout: 5s
+      retries: 20
+      start_period: 15s
+
+  auditoria:
+    build:
+      context: .
+      target: auditoria
+    container_name: coop-consumer-auditoria
+    ports:
+      - "8184:8184"
+    environment:
+      <<: *app-env
+      SERVER_PORT: 8184
+    depends_on:
+      rabbitmq:
+        condition: service_healthy
+      postgres:
+        condition: service_healthy
+      producer:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD-SHELL", "wget -qO- http://127.0.0.1:8184/actuator/health | grep -q UP"]
+      interval: 5s
+      timeout: 5s
+      retries: 20
+      start_period: 15s
+
+  indicadores-1:
+    build:
+      context: .
+      target: indicadores
+    container_name: coop-consumer-indicadores-1
+    ports:
+      - "8185:8185"
+    environment:
+      <<: *app-env
+      SERVER_PORT: 8185
+      INSTANCE_ID: indicadores-1
+    depends_on:
+      rabbitmq:
+        condition: service_healthy
+      postgres:
+        condition: service_healthy
+      producer:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD-SHELL", "wget -qO- http://127.0.0.1:8185/actuator/health | grep -q UP"]
+      interval: 5s
+      timeout: 5s
+      retries: 20
+      start_period: 15s
+
+  indicadores-2:
+    build:
+      context: .
+      target: indicadores
+    container_name: coop-consumer-indicadores-2
+    ports:
+      - "8186:8186"
+    environment:
+      <<: *app-env
+      SERVER_PORT: 8186
+      INSTANCE_ID: indicadores-2
+    depends_on:
+      rabbitmq:
+        condition: service_healthy
+      postgres:
+        condition: service_healthy
+      producer:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD-SHELL", "wget -qO- http://127.0.0.1:8186/actuator/health | grep -q UP"]
+      interval: 5s
+      timeout: 5s
+      retries: 20
+      start_period: 15s
+
+volumes:
+  rabbitmq_data:
+  postgres_data:

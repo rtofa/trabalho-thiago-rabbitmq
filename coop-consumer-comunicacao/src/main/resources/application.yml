@@ -1,0 +1,32 @@
+server:
+  port: ${SERVER_PORT:8182}
+
+spring:
+  application:
+    name: coop-consumer-comunicacao
+  datasource:
+    url: jdbc:postgresql://${DB_HOST:localhost}:${DB_PORT:5432}/${DB_NAME:cooperativa}
+    username: ${DB_USER:coop}
+    password: ${DB_PASSWORD:coop}
+  jpa:
+    hibernate:
+      ddl-auto: validate
+    open-in-view: false
+  flyway:
+    enabled: true
+    baseline-on-migrate: true
+  rabbitmq:
+    host: ${RABBITMQ_HOST:localhost}
+    port: ${RABBITMQ_PORT:5672}
+    username: ${RABBITMQ_USER:coop}
+    password: ${RABBITMQ_PASSWORD:coop}
+    listener:
+      simple:
+        acknowledge-mode: manual
+        default-requeue-rejected: false
+
+management:
+  endpoints:
+    web:
+      exposure:
+        include: health,info

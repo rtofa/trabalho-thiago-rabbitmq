@@ -6,6 +6,25 @@ $ErrorActionPreference = "Stop"
 $RootDir = Split-Path -Parent $PSScriptRoot
 Set-Location $RootDir
 
+function Import-DotEnv([string]$EnvPath) {
+    if (-not (Test-Path $EnvPath)) {
+        throw "Arquivo .env não encontrado. Execute: Copy-Item .env.example .env e preencha suas credenciais locais."
+    }
+    Get-Content $EnvPath | ForEach-Object {
+        $line = $_.Trim()
+        if ($line -and -not $line.StartsWith("#") -and $line.Contains("=")) {
+            $parts = $line.Split("=", 2)
+            $key = $parts[0].Trim()
+            $val = $parts[1].Trim()
+            if (-not [Environment]::GetEnvironmentVariable($key, "Process")) {
+                [Environment]::SetEnvironmentVariable($key, $val, "Process")
+            }
+        }
+    }
+}
+
+Import-DotEnv "$RootDir\.env"
+
 function Resolve-RealJava() {
     if ($env:JAVA_HOME -and (Test-Path "$env:JAVA_HOME\bin\java.exe")) {
         return "$env:JAVA_HOME\bin\java.exe"
@@ -23,8 +42,8 @@ $JavaExe = Resolve-RealJava
 New-Item -ItemType Directory -Force -Path "$RootDir\.pids" | Out-Null
 New-Item -ItemType Directory -Force -Path "$RootDir\logs" | Out-Null
 
-Write-Host "==> Subindo RabbitMQ e PostgreSQL via Docker Compose..." -ForegroundColor Cyan
-docker compose up -d --wait rabbitmq postgres
+Write-Host "==> Subindo RabbitMQ, importando definitions.json e iniciando PostgreSQL via Docker Compose..." -ForegroundColor Cyan
+docker compose up -d --wait rabbitmq rabbitmq-init postgres
 
 $modules = @(
     @{ Name = "producer";      Dir = "coop-producer";             Jar = "coop-producer-1.0.0.jar";             Port = 8180; Args = @() },
@@ -63,7 +82,6 @@ function Test-ServiceUp([int]$Port) {
     }
 }
 
-# Inicia o producer primeiro para garantir migração Flyway sem corrida e ordem limpa
 foreach ($m in $modules) {
     $pidFile = "$RootDir\.pids\$($m.Name).pid"
     if (Test-Path $pidFile) {
@@ -109,4 +127,4 @@ foreach ($m in $modules) {
 }
 
 Write-Host ""
-Write-Host "Todos os 7 processos estão ativos! RabbitMQ UI: http://localhost:15672 (coop / coop)" -ForegroundColor Cyan
+Write-Host "Todos os 7 processos estão ativos! Painel: http://localhost:8180 | RabbitMQ UI: http://localhost:15672" -ForegroundColor Cyan

@@ -1,4 +1,4 @@
-param(
+﻿param(
     [ValidateSet("Local", "Docker")]
     [string]$Mode = "Local",
     [switch]$KeepRunning
@@ -7,6 +7,26 @@ param(
 $ErrorActionPreference = "Stop"
 $RootDir = Split-Path -Parent $PSScriptRoot
 Set-Location $RootDir
+
+if (-not (Test-Path "$RootDir\.env")) {
+    throw "Arquivo .env não encontrado. Execute: Copy-Item .env.example .env e defina as credenciais locais."
+}
+Get-Content "$RootDir\.env" | ForEach-Object {
+    $line = $_.Trim()
+    if ($line -and -not $line.StartsWith("#") -and $line.Contains("=")) {
+        $parts = $line.Split("=", 2)
+        $key = $parts[0].Trim()
+        $val = $parts[1].Trim()
+        if (-not [Environment]::GetEnvironmentVariable($key, "Process")) {
+            [Environment]::SetEnvironmentVariable($key, $val, "Process")
+        }
+    }
+}
+
+$RabbitUser = $env:RABBITMQ_USER
+$RabbitPass = $env:RABBITMQ_PASSWORD
+$DbUser = $env:DB_USER
+$DbName = if ($env:DB_NAME) { $env:DB_NAME } else { "cooperativa" }
 
 function Decode-Body($resp) {
     if ($resp.Content -is [byte[]]) {
@@ -34,7 +54,7 @@ function Get-JsonObject($url) {
 }
 
 function Get-RabbitQueues() {
-    $pair = "coop:coop"
+    $pair = "${RabbitUser}:${RabbitPass}"
     $b64 = [Convert]::ToBase64String([Text.Encoding]::ASCII.GetBytes($pair))
     $hdr = @{ Authorization = "Basic $b64" }
     $resp = Invoke-WebRequest -UseBasicParsing -Uri "http://localhost:15672/api/queues" -Headers $hdr
@@ -56,11 +76,11 @@ Write-Host "==========================================================" -Foregro
 if ($Mode -eq "Docker") {
     docker compose up -d --wait | Out-Null
 } else {
-    docker compose up -d --wait rabbitmq postgres | Out-Null
+    docker compose up -d --wait rabbitmq rabbitmq-init postgres | Out-Null
 }
 
 Write-Host "==> Limpando tabelas de dominio e filas para execucao limpa..." -ForegroundColor Cyan
-docker exec coop-postgres psql -U coop -d cooperativa -c "DO `$`$ DECLARE t text; BEGIN FOR t IN SELECT unnest(ARRAY['published_events','processed_events','recepcao_tickets','comunicacao_avisos','qualidade_resultados','auditoria_eventos','indicadores_totais','indicadores_execucoes']) LOOP IF to_regclass('public.' || t) IS NOT NULL THEN EXECUTE 'TRUNCATE TABLE ' || quote_ident(t) || ' RESTART IDENTITY'; END IF; END LOOP; END `$`$;" | Out-Null
+docker exec coop-postgres psql -U $DbUser -d $DbName -c "DO `$`$ DECLARE t text; BEGIN FOR t IN SELECT unnest(ARRAY['published_events','processed_events','recepcao_tickets','comunicacao_avisos','qualidade_resultados','auditoria_eventos','indicadores_totais','indicadores_execucoes']) LOOP IF to_regclass('public.' || t) IS NOT NULL THEN EXECUTE 'TRUNCATE TABLE ' || quote_ident(t) || ' RESTART IDENTITY'; END IF; END LOOP; END `$`$;" | Out-Null
 foreach ($q in @("coop.recepcao.queue","coop.comunicacao.queue","coop.qualidade.queue","coop.auditoria.queue","coop.indicadores.queue")) {
     docker exec coop-rabbitmq rabbitmqctl purge_queue $q | Out-Null
 }

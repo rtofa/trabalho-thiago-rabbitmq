@@ -1,27 +1,31 @@
 {
-  "rabbit_version": "3.13.0",
-  "users": [
-    {
-      "name": "coop",
-      "password_hash": "lHJT4TiEIJUjxkYVD34OrolJ4zo5pKrRqzBGm96BAMHEBBv0",
-      "hashing_algorithm": "rabbit_password_hashing_sha256",
-      "tags": [
-        "administrator"
-      ]
-    }
-  ],
+  "rabbit_version": "3.13.7",
   "vhosts": [
     {
       "name": "/"
     }
   ],
-  "permissions": [
+  "policies": [
     {
-      "user": "coop",
       "vhost": "/",
-      "configure": ".*",
-      "write": ".*",
-      "read": ".*"
+      "name": "coop-queue-protection",
+      "pattern": "^coop\\..*\\.queue$",
+      "apply-to": "queues",
+      "definition": {
+        "max-length": 100000,
+        "overflow": "reject-publish"
+      },
+      "priority": 1
+    },
+    {
+      "vhost": "/",
+      "name": "coop-dlq-retention",
+      "pattern": "^coop\\..*\\.dlq$",
+      "apply-to": "queues",
+      "definition": {
+        "message-ttl": 604800000
+      },
+      "priority": 1
     }
   ],
   "exchanges": [

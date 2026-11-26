@@ -3,6 +3,20 @@ $RootDir = Split-Path -Parent $PSScriptRoot
 $pidFile = "$RootDir\.pids\comunicacao.pid"
 $jarPath = "$RootDir\coop-consumer-comunicacao\target\coop-consumer-comunicacao-1.0.0.jar"
 
+if (Test-Path "$RootDir\.env") {
+    Get-Content "$RootDir\.env" | ForEach-Object {
+        $line = $_.Trim()
+        if ($line -and -not $line.StartsWith("#") -and $line.Contains("=")) {
+            $parts = $line.Split("=", 2)
+            $key = $parts[0].Trim()
+            $val = $parts[1].Trim()
+            if (-not [Environment]::GetEnvironmentVariable($key, "Process")) {
+                [Environment]::SetEnvironmentVariable($key, $val, "Process")
+            }
+        }
+    }
+}
+
 function Resolve-RealJava() {
     if ($env:JAVA_HOME -and (Test-Path "$env:JAVA_HOME\bin\java.exe")) {
         return "$env:JAVA_HOME\bin\java.exe"

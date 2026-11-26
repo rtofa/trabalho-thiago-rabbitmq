@@ -1,25 +1,26 @@
 # Cooperativa Agrícola — Mensageria Orientada a Eventos com RabbitMQ
 
-> **Disciplina:** Sistemas Distribuídos e Cloud Computing — Tema 08  
-> **Tecnologias:** Java 21, Spring Boot 4.2.0, Spring AMQP (RabbitMQ), PostgreSQL 16, Flyway, Docker Compose  
-
-## Integrantes do Grupo (5 integrantes)
-
-- `[Integrante 1 — Nome Completo / RA]`
-- `[Integrante 2 — Nome Completo / RA]`
-- `[Integrante 3 — Nome Completo / RA]`
-- `[Integrante 4 — Nome Completo / RA]`
-- `[Integrante 5 — Nome Completo / RA]`
+- **Disciplina:** Sistemas Distribuídos e Cloud Computing
+- **Tema:** Tema 08 — Cooperativa Agrícola (Trabalho Final de Mensageria com RabbitMQ)
+- **Nome do Grupo:** Grupo 08 — Cooperativa Agrícola
+- **Integrantes:**
+  - Ryan Tofanini — RA: 269204
+  - João Felipe Lorenzon de Faria — RA: 268756
+  - João Pedro Rodrigues Alves — RA: 269476
+  - Matheus Aparecido Andrade Moraes — RA: 269648
+  - Luis Gustavo Sciarini Marins — RA: 267483
 
 ---
 
-## Visão Geral e Arquitetura
+## 1. Documentação da Solução
 
-O sistema modela o fluxo de **recepção de cargas agrícolas** e **análise de qualidade de lotes** em uma cooperativa. A aplicação produtora (`coop-producer`) publica fatos do domínio em uma **Topic Exchange** (`coop.events.topic`) no RabbitMQ, e cinco responsabilidades de consumo independentes reagem aos eventos conforme regras de roteamento declarativas.
+### 1.1. Visão Geral e Diagrama da Arquitetura
+
+O sistema registra o recebimento de cargas agrícolas e o resultado das análises de qualidade de cada lote. A aplicação produtora (`coop-producer`) publica eventos de domínio em formato JSON na `TopicExchange` **`coop.events.topic`** no RabbitMQ, e cinco responsabilidades de consumo independentes reagem conforme suas regras de roteamento.
 
 ```mermaid
 flowchart LR
-    P["coop-producer<br/>REST API :8180"] -->|PERSISTENT + Confirms| EX(("coop.events.topic<br/>Topic Exchange"))
+    P["coop-producer<br/>REST API + Painel Web :8180"] -->|PERSISTENT + Publisher Confirms| EX(("coop.events.topic<br/>Topic Exchange"))
 
     EX -->|carga.recebida| Q1["coop.recepcao.queue"]
     EX -->|carga.recebida<br/>carga.recusada<br/>analise.reprovada| Q2["coop.comunicacao.queue"]
@@ -27,38 +28,33 @@ flowchart LR
     EX -->|#| Q4["coop.auditoria.queue"]
     EX -->|carga.recebida| Q5["coop.indicadores.queue"]
 
-    Q1 -->|ACK pós-commit| C1["1. Recepção :8181<br/>Tickets de Pesagem"]
-    Q2 -->|ACK pós-commit| C2["2. Comunicação :8182<br/>Avisos aos Cooperados"]
-    Q3 -->|ACK pós-commit| C3["3. Qualidade :8183<br/>Resultados de Análises"]
-    Q4 -->|ACK pós-commit| C4["4. Auditoria :8184<br/>Histórico Consultável"]
+    Q1 -->|basicAck pós-commit| C1["1. Recepção :8181<br/>Tickets de Pesagem"]
+    Q2 -->|basicAck pós-commit| C2["2. Comunicação :8182<br/>Avisos aos Cooperados"]
+    Q3 -->|basicAck pós-commit| C3["3. Qualidade :8183<br/>Resultados de Análises"]
+    Q4 -->|basicAck pós-commit| C4["4. Auditoria :8184<br/>Histórico Consultável"]
     Q5 -->|prefetch=1<br/>Competing Consumers| C5A["5a. Indicadores-1 :8185<br/>Peso Total / Produto"]
     Q5 -->|prefetch=1<br/>Competing Consumers| C5B["5b. Indicadores-2 :8186<br/>Peso Total / Produto"]
 
     C1 & C2 & C3 & C4 & C5A & C5B --> DB[("PostgreSQL :5432<br/>Tabelas de Domínio +<br/>processed_events")]
 
-    Q1 & Q2 & Q3 & Q4 & Q5 -.->|NACK requeue=false| DLX(("coop.events.dlx<br/>Direct Exchange"))
+    Q1 & Q2 & Q3 & Q4 & Q5 -.->|basicNack requeue=false| DLX(("coop.events.dlx<br/>Direct Exchange"))
     DLX --> DLQ["*.dlq (5 Filas DLQ)"]
 ```
 
----
+### 1.2. Módulos do Repositório
 
-## Módulos do Repositório
-
-| Módulo / Arquivo | Papel | Porta HTTP |
+| Módulo / Arquivo | Papel | Porta |
 |---|---|---|
-| `coop-common` | Contrato JSON (`CooperativeEvent`, `EventPayload`), constantes de topologia, `CooperativeRabbitConfig`, `ProcessedEventRepository`, `ReliableEventConsumer` e migração Flyway `V1__init_schema.sql` | — |
-| `coop-producer` | API REST para disparo dos 4 eventos obrigatórios, eventos customizados e republicação idempotente por `eventId` | `8180` |
-| `coop-consumer-recepcao` | Registra ticket de pesagem (`lote` e `pesoLiquidoKg`) | `8181` |
-| `coop-consumer-comunicacao` | Registra avisos de recebimento, recusa de carga e reprovação de análise | `8182` |
-| `coop-consumer-qualidade` | Registra resultados das análises da família `analise.*` (incluindo novos fatos da família) | `8183` |
-| `coop-consumer-auditoria` | Mantém histórico completo consultável por identificador, tipo e intervalo de horário | `8184` |
-| `coop-consumer-indicadores` | Soma peso líquido recebido por produto; executa em **2 instâncias simultâneas** (`indicadores-1` e `indicadores-2`) | `8185` / `8186` |
-| `rabbitmq/` | `rabbitmq.conf` + `definitions.json` para configuração 100% reproduzível do broker | `5672` / `15672` |
-| `scripts/` | Scripts PowerShell para subir, parar/religar comunicação e validar todos os cenários | — |
+| [`coop-common`](coop-common) | Contrato JSON (`CooperativeEvent`, `EventPayload`), constantes da topologia, `CooperativeRabbitConfig`, `ProcessedEventRepository`, `ReliableEventConsumer` e migração Flyway `V1__init_schema.sql` | — |
+| [`coop-producer`](coop-producer) | API REST produtora de eventos, republicação idempotente e Painel Web interativo | `8180` |
+| [`coop-consumer-recepcao`](coop-consumer-recepcao) | Consumidor 1 — Registra tickets de pesagem (`lote` e `pesoLiquidoKg`) | `8181` |
+| [`coop-consumer-comunicacao`](coop-consumer-comunicacao) | Consumidor 2 — Registra avisos de recebimento, recusa de carga e reprovação em análise | `8182` |
+| [`coop-consumer-qualidade`](coop-consumer-qualidade) | Consumidor 3 — Registra resultados das análises da família `analise.*` | `8183` |
+| [`coop-consumer-auditoria`](coop-consumer-auditoria) | Consumidor 4 — Mantém histórico consultável por `eventId`, `eventType` e horário | `8184` |
+| [`coop-consumer-indicadores`](coop-consumer-indicadores) | Consumidor 5 — Soma peso líquido recebido por produto (2 instâncias simultâneas) | `8185` / `8186` |
+| [`rabbitmq/definitions.json`](rabbitmq/definitions.json) | Exportação versionada da topologia RabbitMQ (`vhosts`, `policies`, `exchanges`, `queues` e `bindings`), **sem credenciais/segredos** | `5672` / `15672` |
 
----
-
-## Matriz de Roteamento (Evento × Consumidor)
+### 1.3. Matriz Evento × Consumidor
 
 | Evento | `eventType` | `routingKey` | 1. Recepção (`carga.recebida`) | 2. Comunicação (`carga.recebida`, `carga.recusada`, `analise.reprovada`) | 3. Qualidade (`analise.*`) | 4. Auditoria (`#`) | 5. Indicadores (`carga.recebida`) |
 |---|---|---|:---:|:---:|:---:|:---:|:---:|
@@ -66,14 +62,12 @@ flowchart LR
 | **Carga recusada** | `CARGA_RECUSADA` | `carga.recusada` | NÃO | **SIM** | NÃO | **SIM** | NÃO |
 | **Análise aprovada** | `ANALISE_APROVADA` | `analise.aprovada` | NÃO | NÃO | **SIM** | **SIM** | NÃO |
 | **Análise reprovada** | `ANALISE_REPROVADA` | `analise.reprovada` | NÃO | **SIM** | **SIM** | **SIM** | NÃO |
-| *Novo evento da família* (ex.) | `ANALISE_REAVALIADA` | `analise.reavaliada` | NÃO | NÃO | **SIM** | **SIM** | NÃO |
+| *Novo evento na família* (ex.) | `ANALISE_REAVALIADA` | `analise.reavaliada` | NÃO | NÃO | **SIM** | **SIM** | NÃO |
 | *Evento sem regra específica* (ex.) | `FATURAMENTO_EMITIDO` | `faturamento.emitido` | NÃO | NÃO | NÃO | **SIM** | NÃO |
 
----
+### 1.4. Exemplo do Contrato de Evento em JSON
 
-## Contrato JSON dos Eventos
-
-Todos os eventos seguem o envelope `CooperativeEvent`:
+Todos os eventos seguem o contrato `CooperativeEvent`:
 
 ```json
 {
@@ -94,51 +88,94 @@ Todos os eventos seguem o envelope `CooperativeEvent`:
 }
 ```
 
-- **`eventId`**: Identificador único do evento (UUID gerado automaticamente ou informado na requisição para repetir intencionalmente uma publicação no teste de duplicidade).
-- **`eventType`**: Tipo do fato do domínio (`CARGA_RECEBIDA`, `CARGA_RECUSADA`, `ANALISE_APROVADA`, `ANALISE_REPROVADA` ou novos tipos futuros).
-- **`routingKey`**: Chave hierárquica `<familia>.<evento>` usada pela `TopicExchange`.
-- **`occurredAt`**: Carimbo temporal ISO-8601 UTC da ocorrência.
-- **`payload`**: Dados necessários aos efeitos de cada consumidor (`lote`, `cooperado`, `produto`, `pesoLiquidoKg`, `motivo` e mapa extensível `detalhes`).
+- **`eventId`**: identificador único do evento (gerado como UUID ou informado manualmente para repetir o mesmo ID no teste de duplicidade).
+- **`eventType`**: tipo do evento (`String` extensível para aceitar novos fatos sem quebrar desserialização).
+- **`routingKey`**: chave hierárquica `<processo>.<fato>` usada pela `Topic Exchange`.
+- **`occurredAt`**: timestamp ISO-8601 UTC da ocorrência.
+- **`payload`**: dados necessários aos efeitos (`lote`, `cooperado`, `produto`, `pesoLiquidoKg`, `motivo` e mapa extensível `detalhes`).
 
-Mais detalhes sobre as decisões arquiteturais, comparação `Topic × Direct × Fanout`, comportamento para eventos novos, confirmação manual e idempotência estão documentados em [`docs/arquitetura-e-justificativa.md`](docs/arquitetura-e-justificativa.md).
+### 1.5. Justificativa das Decisões de Roteamento e Comparação de Exchanges
 
-A explicação aprofundada de todo o ecossistema e da lógica interna de cada componente (banco de dados, RabbitMQ, produtor, painel web, ACK pós-commit e concorrência/idempotência) está em [`docs/ecossistema-e-logica-detalhada.md`](docs/ecossistema-e-logica-detalhada.md).
+Escolheu-se uma **Topic Exchange (`coop.events.topic`, durável)** combinada a chaves no padrão `<processo>.<fato>`, com **Dead Letter Exchange (`coop.events.dlx`)** e políticas versionadas em [`rabbitmq/definitions.json`](rabbitmq/definitions.json) (`coop-queue-protection` e `coop-dlq-retention`).
+
+#### Comparação com duas alternativas estudadas em aula
+
+| Critério | **Topic Exchange** *(Escolhida)* | **Direct Exchange** *(Alternativa 1)* | **Fanout Exchange** *(Alternativa 2)* |
+|---|---|---|---|
+| **Seleção por evento** | **Atende nativamente** por chaves literais (`carga.recebida`, `carga.recusada`, `analise.reprovada`). | **Atende nativamente** por igualdade exata. | **Não atende.** Entrega tudo para todas as filas, exigindo descarte na aplicação. |
+| **Acompanhamento de uma família** | **Atende nativamente** com curinga `analise.*` na fila de Qualidade, capturando novos fatos da família sem mexer no broker. | **Não atende nativamente.** Exigiria cadastrar manualmente um novo binding para cada novo evento da família. | **Não atende.** Qualidade receberia também eventos `carga.*`. |
+| **Recebimento abrangente** | **Atende nativamente** com curinga `#` na fila de Auditoria (`coop.auditoria.queue`). | **Não atende nativamente.** Teria de replicar todos os bindings existentes e futuros na Auditoria. | **Atende nativamente** (*broadcast* total), mas inviabiliza os dois critérios anteriores na mesma exchange. |
+
+#### Comportamento diante de eventos novos
+- **Evento novo pertencente a uma família já acompanhada** (ex.: `analise.reavaliada`): o binding `analise.*` roteia automaticamente para `coop.qualidade.queue` e o binding `#` roteia para `coop.auditoria.queue`, sem alterar código ou bindings. Os demais consumidores não recebem.
+- **Evento novo que não atende a nenhuma regra específica de negócio** (ex.: `faturamento.emitido`): apenas a Auditoria (`#`) recebe o evento. Caso não existisse a fila `#`, a `Topic Exchange` descartaria a mensagem sem rota — e, como o produtor publica com `mandatory=true` e `ReturnsCallback`, o broker notificaria o retorno da mensagem não roteada ao produtor.
+
+Documentação técnica complementar:
+- [`docs/arquitetura-e-justificativa.md`](docs/arquitetura-e-justificativa.md) — justificativa aprofundada e comparação arquitetural.
+- [`docs/ecossistema-e-logica-detalhada.md`](docs/ecossistema-e-logica-detalhada.md) — explicação detalhada da lógica de cada classe, banco e container.
+- [`docs/roteiro-de-slides.md`](docs/roteiro-de-slides.md) — guia completo para montagem dos slides e apresentação em 20 minutos.
 
 ---
 
-## Como Executar
+## 2. Preparação do Ambiente e Configurações do RabbitMQ
 
-### Opção A — Tudo no Docker Desktop (recomendado)
+### 2.1. Credenciais fora do repositório (`.env`)
 
-**Pré-requisito:** apenas **Docker Desktop** em execução (portas livres: `5672`, `15672`, `5432`, `8180`–`8186`).
+Nenhuma senha, token ou hash de usuário está versionado no repositório (inclusive [`rabbitmq/definitions.json`](rabbitmq/definitions.json) contém **apenas** `vhosts`, `policies`, `exchanges`, `queues` e `bindings`).
+
+Antes de iniciar, crie o arquivo local `.env` (ignorado pelo `.gitignore`) a partir do modelo [`.env.example`](.env.example):
 
 ```powershell
-# Compila, cria as imagens e sobe os 9 containers (RabbitMQ, PostgreSQL, produtor e 6 consumidores)
+Copy-Item .env.example .env
+```
+
+Edite `.env` definindo credenciais de demonstração locais (`RABBITMQ_USER`, `RABBITMQ_PASSWORD`, `DB_USER`, `DB_PASSWORD`).
+
+### 2.2. Como importar `rabbitmq/definitions.json` em uma instância limpa do RabbitMQ
+
+1. **Pelo Painel Web (RabbitMQ Management UI):**
+   - Suba uma instância limpa com plugin de gerenciamento (ex.: `docker run -d --name rmq-limpo -p 5672:5672 -p 15672:15672 -e RABBITMQ_DEFAULT_USER=<usuario> -e RABBITMQ_DEFAULT_PASS=<senha> rabbitmq:3-management-alpine`).
+   - Acesse **http://localhost:15672** com o usuário e a senha definidos.
+   - Na aba **Overview**, role até **Import definitions**, selecione o arquivo [`rabbitmq/definitions.json`](rabbitmq/definitions.json) e clique em **Upload definitions**.
+2. **Ou via API HTTP (`curl`) em uma instância limpa:**
+   ```powershell
+   curl.exe -u "<RABBITMQ_USER>:<RABBITMQ_PASSWORD>" -X POST -H "Content-Type: application/json" --data-binary "@rabbitmq/definitions.json" http://localhost:15672/api/definitions
+   ```
+3. **Ou via Docker Compose deste projeto (importação automática):**
+   - O serviço `rabbitmq-init` no [`compose.yaml`](compose.yaml) aguarda o broker ficar saudável e importa automaticamente [`rabbitmq/definitions.json`](rabbitmq/definitions.json) via `POST /api/definitions` usando as credenciais locais de `.env`.
+
+---
+
+## 3. Como Iniciar Produtor, Consumidores e Publicar os 4 Eventos
+
+### 3.1. Execução completa no Docker Desktop (recomendado)
+
+```powershell
 docker compose up -d --build --wait
 ```
 
-- **Painel Web (Disparo + Matriz + Monitoramento ao Vivo):** http://localhost:8180
-- **RabbitMQ Management UI:** http://localhost:15672 (usuário `coop`, senha `coop`)
-- **Produtor REST API:** http://localhost:8180/api/eventos
-- **Consumidores:** Recepção (`:8181`), Comunicação (`:8182`), Qualidade (`:8183`), Auditoria (`:8184`), Indicadores-1 (`:8185`), Indicadores-2 (`:8186`)
-- A topologia (`coop.events.topic`, `coop.events.dlx`, 5 filas principais, 5 DLQs e 12 bindings) é carregada automaticamente via [`rabbitmq/definitions.json`](rabbitmq/definitions.json) e também declarada de forma idempotente em [`CooperativeRabbitConfig.java`](coop-common/src/main/java/com/example/cooperativa/common/messaging/CooperativeRabbitConfig.java).
+Serviços iniciados:
+- **Painel Web + Produtor REST:** http://localhost:8180
+- **RabbitMQ Management UI:** http://localhost:15672 *(credenciais do `.env`)*
+- **Consumidores:** Recepção (`:8181`), Comunicação (`:8182`), Qualidade (`:8183`), Auditoria (`:8184`), Indicadores-1 (`:8185`) e Indicadores-2 (`:8186`).
 
-Para encerrar os containers:
-```powershell
-docker compose down
-```
+### 3.2. Execução independente dos processos Java locais
 
-### Opção B — Executar aplicações Java localmente (apenas broker e banco no Docker)
-
-**Pré-requisitos:** **Java 21** e **Docker Desktop**.
+Se preferir rodar apenas o RabbitMQ e o PostgreSQL no Docker e iniciar cada aplicação Java separadamente (exportando as variáveis do `.env` no shell ou usando `scripts/start-all.ps1`):
 
 ```powershell
-docker compose up -d --wait rabbitmq postgres
+# Sobe apenas infraestrutura e importa definitions.json no RabbitMQ
+docker compose up -d --wait rabbitmq rabbitmq-init postgres
+
+# Compila os módulos
 .\mvnw.cmd clean package -DskipTests
+
+# Forma rápida (carrega .env e inicia os 7 processos independentes)
 .\scripts\start-all.ps1
 ```
 
-**Ou iniciando cada aplicação de forma independente em terminais distintos:**
+Ou iniciando manualmente cada aplicação em terminais independentes (após carregar as variáveis de `.env`):
+
 ```powershell
 java -jar coop-producer\target\coop-producer-1.0.0.jar
 java -jar coop-consumer-recepcao\target\coop-consumer-recepcao-1.0.0.jar
@@ -149,58 +186,54 @@ java -jar coop-consumer-indicadores\target\coop-consumer-indicadores-1.0.0.jar -
 java -jar coop-consumer-indicadores\target\coop-consumer-indicadores-1.0.0.jar --server.port=8186 --coop.instance-id=indicadores-2
 ```
 
-Para encerrar os processos locais:
+### 3.3. Como publicar os quatro eventos do cenário
+
+Você pode disparar pelos **4 botões coloridos do Painel Web (`http://localhost:8180`)** ou via `curl`:
+
 ```powershell
-.\scripts\stop-all.ps1
+# 1) Carga recebida
+curl.exe -s -X POST http://localhost:8180/api/eventos/carga-recebida -H "Content-Type: application/json" -d "{\"eventId\":\"evt-demo-1\",\"lote\":\"LOTE-101\",\"cooperado\":\"Fazenda Boa Vista\",\"produto\":\"SOJA\",\"pesoLiquidoKg\":12500.00}"
+
+# 2) Carga recusada
+curl.exe -s -X POST http://localhost:8180/api/eventos/carga-recusada -H "Content-Type: application/json" -d "{\"lote\":\"LOTE-102\",\"cooperado\":\"Sitio Esperanca\",\"produto\":\"MILHO\",\"motivo\":\"Umidade acima do limite\"}"
+
+# 3) Análise aprovada
+curl.exe -s -X POST http://localhost:8180/api/eventos/analise-aprovada -H "Content-Type: application/json" -d "{\"lote\":\"LOTE-101\",\"produto\":\"SOJA\"}"
+
+# 4) Análise reprovada
+curl.exe -s -X POST http://localhost:8180/api/eventos/analise-reprovada -H "Content-Type: application/json" -d "{\"lote\":\"LOTE-103\",\"cooperado\":\"Estancia Santa Helena\",\"produto\":\"TRIGO\",\"motivo\":\"Micotoxina acima do limite\"}"
 ```
 
 ---
 
-## Procedimento para Reproduzir os Testes (Roteiro da Apresentação)
+## 4. Roteiro para Reproduzir os Testes
 
 ### Execução automatizada completa
+- **Testes unitários:** `.\mvnw.cmd test`
+- **Bateria ponta a ponta (Docker):** `.\scripts\verify-e2e.ps1 -Mode Docker -KeepRunning`
+- **Bateria ponta a ponta (Processos locais):** `.\scripts\verify-e2e.ps1 -Mode Local`
 
-1. **Testes unitários (JUnit 5 + Mockito):**
-   ```powershell
-   .\mvnw.cmd test
-   ```
-2. **Teste automatizado ponta a ponta nos containers Docker (valida todas as 5 etapas):**
-   ```powershell
-   .\scripts\verify-e2e.ps1 -Mode Docker -KeepRunning
-   ```
-3. **Ou contra os 7 processos Java locais:**
-   ```powershell
-   .\scripts\verify-e2e.ps1 -Mode Local
-   ```
+### Passo a passo manual
 
-### Reprodução manual passo a passo (para demonstração ao vivo)
+#### 4.1. Verificar roteamento dos quatro eventos e seus efeitos
+Após publicar cada evento da seção 3.3, compare com a matriz consultando os endpoints (ou observando ao vivo no Painel Web `http://localhost:8180` e na aba **Queues** do RabbitMQ `http://localhost:15672`):
+- **1. Recepção** (recebe apenas `carga.recebida`): `GET http://localhost:8181/api/recepcao/tickets`
+- **2. Comunicação** (recebe `carga.recebida`, `carga.recusada`, `analise.reprovada`): `GET http://localhost:8182/api/comunicacao/avisos`
+- **3. Qualidade** (recebe `analise.*`): `GET http://localhost:8183/api/qualidade/analises`
+- **4. Auditoria** (recebe `#`, consultável por `eventId`, `eventType`, `inicio` e `fim`): `GET http://localhost:8184/api/auditoria/eventos?eventType=CARGA_RECEBIDA`
+- **5. Indicadores** (recebe apenas `carga.recebida`): `GET http://localhost:8185/api/indicadores/totais`
 
-#### Etapa 1 e 2 — Publicação dos 4 eventos e conferência da matriz de roteamento
-
+Para testar eventos novos via API:
 ```powershell
-# 1) Carga recebida (Recepção, Comunicação, Auditoria, Indicadores)
-curl.exe -s -X POST http://localhost:8180/api/eventos/carga-recebida -H "Content-Type: application/json" -d "{\"eventId\":\"evt-demo-1\",\"lote\":\"LOTE-101\",\"cooperado\":\"Fazenda Boa Vista\",\"produto\":\"SOJA\",\"pesoLiquidoKg\":12500.00}"
+# Novo fato na família especializada -> apenas Qualidade e Auditoria
+curl.exe -s -X POST http://localhost:8180/api/eventos/publicar -H "Content-Type: application/json" -d "{\"eventType\":\"ANALISE_REAVALIADA\",\"routingKey\":\"analise.reavaliada\",\"payload\":{\"lote\":\"LOTE-103\",\"produto\":\"TRIGO\",\"motivo\":\"Contraprova solicitada\"}}"
 
-# 2) Carga recusada (Comunicação, Auditoria)
-curl.exe -s -X POST http://localhost:8180/api/eventos/carga-recusada -H "Content-Type: application/json" -d "{\"lote\":\"LOTE-102\",\"cooperado\":\"Sitio Esperanca\",\"produto\":\"MILHO\",\"motivo\":\"Umidade acima do limite\"}"
-
-# 3) Análise aprovada (Qualidade, Auditoria)
-curl.exe -s -X POST http://localhost:8180/api/eventos/analise-aprovada -H "Content-Type: application/json" -d "{\"lote\":\"LOTE-101\",\"produto\":\"SOJA\"}"
-
-# 4) Análise reprovada (Comunicação, Qualidade, Auditoria)
-curl.exe -s -X POST http://localhost:8180/api/eventos/analise-reprovada -H "Content-Type: application/json" -d "{\"lote\":\"LOTE-103\",\"cooperado\":\"Estancia Santa Helena\",\"produto\":\"TRIGO\",\"motivo\":\"Micotoxina acima do limite\"}"
+# Evento sem regra específica -> apenas Auditoria (#)
+curl.exe -s -X POST http://localhost:8180/api/eventos/publicar -H "Content-Type: application/json" -d "{\"eventType\":\"FATURAMENTO_EMITIDO\",\"routingKey\":\"faturamento.emitido\",\"payload\":{\"lote\":\"LOTE-101\",\"produto\":\"SOJA\"}}"
 ```
 
-**Consultar efeitos em cada consumidor:**
-- Recepção: `GET http://localhost:8181/api/recepcao/tickets`
-- Comunicação: `GET http://localhost:8182/api/comunicacao/avisos`
-- Qualidade: `GET http://localhost:8183/api/qualidade/analises`
-- Auditoria (com filtros opcionais `eventId`, `eventType`, `inicio`, `fim`): `GET http://localhost:8184/api/auditoria/eventos`
-- Indicadores: `GET http://localhost:8185/api/indicadores/totais`
-
-#### Etapa 3 — Trabalho concorrente (2 instâncias do 5º consumidor)
-
-Com `indicadores-1` (`:8185`) e `indicadores-2` (`:8186`) ativos na fila `coop.indicadores.queue` (`prefetch=1`), publique uma sequência de cargas recebidas:
+#### 4.2. Divisão de trabalho entre as duas instâncias do 5º consumidor
+Com `indicadores-1` (`:8185`) e `indicadores-2` (`:8186`) conectados à fila `coop.indicadores.queue` com `prefetch=1`, publique 6 cargas recebidas distintas (ou clique em **Disparar Lote Concorrente (6 cargas)** no Painel Web):
 
 ```powershell
 1..6 | ForEach-Object {
@@ -209,43 +242,46 @@ Com `indicadores-1` (`:8185`) e `indicadores-2` (`:8186`) ativos na fila `coop.i
 curl.exe -s http://localhost:8185/api/indicadores/execucoes
 ```
 
-O campo `eventosProcessadosPorInstancia` e a lista `execucoes` exibem exatamente qual instância (`indicadores-1` ou `indicadores-2`) processou cada evento, com execução única por evento.
+O campo `eventosProcessadosPorInstancia` e a lista `execucoes` comprovam que ambas as instâncias dividiram as mensagens com exatamente 1 processamento por evento, enquanto `Recepção`, `Comunicação` e `Auditoria` também registraram todas as 6 cargas.
 
-#### Etapa 4 — Interrupção e recuperação (`Comunicação`)
+#### 4.3. Interrupção e recuperação de um consumidor (`Comunicação`)
 
 ```powershell
-# 1) Parar apenas o consumidor de Comunicação (via Docker ou script local)
-docker compose stop comunicacao
-# (ou, se rodando localmente: .\scripts\stop-comunicacao.ps1)
+# 1) Parar apenas o consumidor de Comunicação
+docker compose stop comunicacao          # ou: .\scripts\stop-comunicacao.ps1
 
-# 2) Publicar evento que Comunicação e Qualidade/Auditoria devem receber
-curl.exe -s -X POST http://localhost:8180/api/eventos/analise-reprovada -H "Content-Type: application/json" -d "{\"lote\":\"LOTE-RECUP\",\"cooperado\":\"Cooperado Teste\",\"produto\":\"SOJA\",\"motivo\":\"Teste offline\"}"
+# 2) Publicar um evento que Comunicação e outro consumidor devam receber
+curl.exe -s -X POST http://localhost:8180/api/eventos/analise-reprovada -H "Content-Type: application/json" -d "{\"lote\":\"LOTE-RECUP\",\"cooperado\":\"Cooperado Teste\",\"produto\":\"SOJA\",\"motivo\":\"Teste consumidor offline\"}"
 
 # 3) Verificar processamento imediato em Qualidade (:8183) e Auditoria (:8184)
-#    e pendência em coop.comunicacao.queue no painel http://localhost:15672
+#    e verificar no RabbitMQ UI (:15672) que coop.comunicacao.queue possui 0 consumidores e 1 mensagem Ready
 
-# 4) Religar Comunicação e confirmar retomada
-docker compose start comunicacao
-# (ou, se rodando localmente: .\scripts\start-comunicacao.ps1)
+# 4) Religar Comunicação e comprovar a retomada
+docker compose start comunicacao         # ou: .\scripts\start-comunicacao.ps1
 curl.exe -s http://localhost:8182/api/comunicacao/avisos
 ```
 
-#### Etapa 5 — Duplicidade e defesa (novo evento / regra)
+#### 4.4. Tratamento de duplicidade e comprovação do efeito único
+Anote o peso atual de `SOJA` em `GET http://localhost:8185/api/indicadores/totais` e republique o mesmo evento `evt-demo-1` (da etapa 3.3) com o **mesmo `eventId`**:
 
 ```powershell
-# Republicar o mesmo eventId (evt-demo-1) publicado na Etapa 1:
+# Opção A — endpoint dedicado de republicação exata pelo eventId:
 curl.exe -s -X POST http://localhost:8180/api/eventos/evt-demo-1/republicar
 
-# Conferir que o peso de SOJA não foi somado novamente e que a tentativa duplicada foi registrada:
+# Opção B — novo POST enviando explicitamente o mesmo eventId:
+curl.exe -s -X POST http://localhost:8180/api/eventos/carga-recebida -H "Content-Type: application/json" -d "{\"eventId\":\"evt-demo-1\",\"lote\":\"LOTE-101\",\"cooperado\":\"Fazenda Boa Vista\",\"produto\":\"SOJA\",\"pesoLiquidoKg\":12500.00}"
+
+# Comprovação de efeito único:
 curl.exe -s http://localhost:8185/api/indicadores/totais
 curl.exe -s http://localhost:8185/api/indicadores/execucoes
 ```
 
-**Testar evento novo da família `analise.*` e evento sem regra específica:**
-```powershell
-# Novo fato da família especializada -> apenas Qualidade e Auditoria
-curl.exe -s -X POST http://localhost:8180/api/eventos/publicar -H "Content-Type: application/json" -d "{\"eventType\":\"ANALISE_REAVALIADA\",\"routingKey\":\"analise.reavaliada\",\"payload\":{\"lote\":\"LOTE-103\",\"produto\":\"TRIGO\",\"motivo\":\"Contraprova solicitada\"}}"
+- **`/api/indicadores/totais`**: o `pesoTotalKg` e `totalCargas` permanecem inalterados (os `12500.00 kg` foram somados uma única vez).
+- **`/api/indicadores/execucoes`**: exibe o registro `DUPLICADO_IGNORADO` indicando qual instância recebeu a cópia repetida e a descartou sem somar novamente, graças à tabela compartilhada `processed_events` (`PRIMARY KEY (consumer_name, event_id)` com `INSERT ... ON CONFLICT DO NOTHING`).
 
-# Evento sem regra específica -> apenas Auditoria (#)
-curl.exe -s -X POST http://localhost:8180/api/eventos/publicar -H "Content-Type: application/json" -d "{\"eventType\":\"FATURAMENTO_EMITIDO\",\"routingKey\":\"faturamento.emitido\",\"payload\":{\"lote\":\"LOTE-101\",\"produto\":\"SOJA\"}}"
-```
+#### 4.5. Em que momento a mensagem é confirmada pelo consumidor
+Todos os 5 consumidores utilizam `acknowledge-mode: manual` por meio de [`ReliableEventConsumer`](coop-common/src/main/java/com/example/cooperativa/common/messaging/ReliableEventConsumer.java):
+1. Ao receber a mensagem, o listener abre uma transação no PostgreSQL via `TransactionTemplate`.
+2. Dentro dessa transação, reivindica `(consumer_name, event_id)` em `processed_events` e persiste o efeito de domínio no banco.
+3. **Somente após o `COMMIT` da transação no PostgreSQL** o método `channel.basicAck(deliveryTag, false)` é enviado ao RabbitMQ.
+4. Se ocorrer falha transitória de banco (`DataAccessException`), ocorre *rollback* e o consumidor envia `basicNack(deliveryTag, false, true)` para reentrega segura; se a mensagem for inválida ou irrecuperável, envia `basicNack(deliveryTag, false, false)` encaminhando-a para a **DLQ** via `coop.events.dlx`.

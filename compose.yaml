@@ -1,13 +1,13 @@
 x-app-env: &app-env
   DB_HOST: postgres
   DB_PORT: 5432
-  DB_NAME: cooperativa
-  DB_USER: coop
-  DB_PASSWORD: coop
+  DB_NAME: ${DB_NAME:-cooperativa}
+  DB_USER: ${DB_USER:?Defina DB_USER no arquivo .env}
+  DB_PASSWORD: ${DB_PASSWORD:?Defina DB_PASSWORD no arquivo .env}
   RABBITMQ_HOST: rabbitmq
   RABBITMQ_PORT: 5672
-  RABBITMQ_USER: coop
-  RABBITMQ_PASSWORD: coop
+  RABBITMQ_USER: ${RABBITMQ_USER:?Defina RABBITMQ_USER no arquivo .env}
+  RABBITMQ_PASSWORD: ${RABBITMQ_PASSWORD:?Defina RABBITMQ_PASSWORD no arquivo .env}
 
 services:
   rabbitmq:
@@ -17,12 +17,11 @@ services:
       - "5672:5672"
       - "15672:15672"
     environment:
-      RABBITMQ_DEFAULT_USER: coop
-      RABBITMQ_DEFAULT_PASS: coop
-      RABBITMQ_DEFAULT_VHOST: /
+      RABBITMQ_DEFAULT_USER: ${RABBITMQ_USER:?Defina RABBITMQ_USER no arquivo .env}
+      RABBITMQ_DEFAULT_PASS: ${RABBITMQ_PASSWORD:?Defina RABBITMQ_PASSWORD no arquivo .env}
+      RABBITMQ_DEFAULT_VHOST: ${RABBITMQ_VHOST:-/}
     volumes:
       - ./rabbitmq/rabbitmq.conf:/etc/rabbitmq/rabbitmq.conf:ro
-      - ./rabbitmq/definitions.json:/etc/rabbitmq/definitions.json:ro
       - rabbitmq_data:/var/lib/rabbitmq
     healthcheck:
       test: ["CMD", "rabbitmq-diagnostics", "-q", "check_port_connectivity"]
@@ -30,19 +29,49 @@ services:
       timeout: 5s
       retries: 20
 
+  rabbitmq-init:
+    image: curlimages/curl:latest
+    container_name: coop-rabbitmq-init
+    depends_on:
+      rabbitmq:
+        condition: service_healthy
+    environment:
+      RABBITMQ_USER: ${RABBITMQ_USER:?Defina RABBITMQ_USER no arquivo .env}
+      RABBITMQ_PASSWORD: ${RABBITMQ_PASSWORD:?Defina RABBITMQ_PASSWORD no arquivo .env}
+    volumes:
+      - ./rabbitmq/definitions.json:/definitions.json:ro
+    entrypoint:
+      - /bin/sh
+      - -ec
+      - |
+        i=0
+        until curl -sf -u "$$RABBITMQ_USER:$$RABBITMQ_PASSWORD" http://rabbitmq:15672/api/overview >/dev/null; do
+          i=$$((i + 1))
+          if [ "$$i" -ge 30 ]; then
+            echo "RabbitMQ Management API indisponivel" >&2
+            exit 1
+          fi
+          sleep 1
+        done
+        curl -sf -u "$$RABBITMQ_USER:$$RABBITMQ_PASSWORD" \
+          -X POST -H "Content-Type: application/json" \
+          --data-binary @/definitions.json \
+          http://rabbitmq:15672/api/definitions
+        echo "Topologia RabbitMQ importada com sucesso a partir de definitions.json"
+
   postgres:
     image: postgres:16-alpine
     container_name: coop-postgres
     ports:
       - "5432:5432"
     environment:
-      POSTGRES_DB: cooperativa
-      POSTGRES_USER: coop
-      POSTGRES_PASSWORD: coop
+      POSTGRES_DB: ${DB_NAME:-cooperativa}
+      POSTGRES_USER: ${DB_USER:?Defina DB_USER no arquivo .env}
+      POSTGRES_PASSWORD: ${DB_PASSWORD:?Defina DB_PASSWORD no arquivo .env}
     volumes:
       - postgres_data:/var/lib/postgresql/data
     healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U coop -d cooperativa"]
+      test: ["CMD-SHELL", "pg_isready -U $${POSTGRES_USER} -d $${POSTGRES_DB}"]
       interval: 5s
       timeout: 5s
       retries: 20
@@ -65,8 +94,8 @@ services:
       COOP_INDICADORES_2_URL: http://indicadores-2:8186
       RABBITMQ_MGMT_URL: http://rabbitmq:15672
     depends_on:
-      rabbitmq:
-        condition: service_healthy
+      rabbitmq-init:
+        condition: service_completed_successfully
       postgres:
         condition: service_healthy
     healthcheck:
@@ -87,8 +116,8 @@ services:
       <<: *app-env
       SERVER_PORT: 8181
     depends_on:
-      rabbitmq:
-        condition: service_healthy
+      rabbitmq-init:
+        condition: service_completed_successfully
       postgres:
         condition: service_healthy
       producer:
@@ -111,8 +140,8 @@ services:
       <<: *app-env
       SERVER_PORT: 8182
     depends_on:
-      rabbitmq:
-        condition: service_healthy
+      rabbitmq-init:
+        condition: service_completed_successfully
       postgres:
         condition: service_healthy
       producer:
@@ -135,8 +164,8 @@ services:
       <<: *app-env
       SERVER_PORT: 8183
     depends_on:
-      rabbitmq:
-        condition: service_healthy
+      rabbitmq-init:
+        condition: service_completed_successfully
       postgres:
         condition: service_healthy
       producer:
@@ -159,8 +188,8 @@ services:
       <<: *app-env
       SERVER_PORT: 8184
     depends_on:
-      rabbitmq:
-        condition: service_healthy
+      rabbitmq-init:
+        condition: service_completed_successfully
       postgres:
         condition: service_healthy
       producer:
@@ -184,8 +213,8 @@ services:
       SERVER_PORT: 8185
       INSTANCE_ID: indicadores-1
     depends_on:
-      rabbitmq:
-        condition: service_healthy
+      rabbitmq-init:
+        condition: service_completed_successfully
       postgres:
         condition: service_healthy
       producer:
@@ -209,8 +238,8 @@ services:
       SERVER_PORT: 8186
       INSTANCE_ID: indicadores-2
     depends_on:
-      rabbitmq:
-        condition: service_healthy
+      rabbitmq-init:
+        condition: service_completed_successfully
       postgres:
         condition: service_healthy
       producer:

@@ -117,7 +117,7 @@ Todas as tabelas residem no schema `public` do banco `cooperativa`:
 - O produtor serve a interface estática em `http://localhost:8180/` (`index.html`, `styles.css`, `app.js` sem dependências externas/CDN).
 - O endpoint `GET /api/painel/estado` (em `PainelService`) consulta em paralelo (`CompletableFuture.supplyAsync`, com *timeout* curto de 1,2s de conexão e 2,5s de leitura):
   1. Os endpoints de leitura e `/actuator/health` de todos os consumidores (`recepcao`, `comunicacao`, `qualidade`, `auditoria`, `indicadores-1`, `indicadores-2`).
-  2. A API REST de gerenciamento do RabbitMQ (`/api/queues`, autenticada com `coop:coop`), retornando `consumers`, `messagesReady` e `messagesUnacknowledged` de cada fila `coop.*`.
+  2. A API REST de gerenciamento do RabbitMQ (`/api/queues`, autenticada com as credenciais configuradas via `RABBITMQ_USER` / `RABBITMQ_PASSWORD` no `.env`), retornando `consumers`, `messagesReady` e `messagesUnacknowledged` de cada fila `coop.*`.
 - Se um consumidor estiver desligado (ex.: `comunicacao` na Etapa 4), a falha de conexão HTTP é capturada localmente em `PainelService`, marcando apenas aquele serviço como `false` (`OFFLINE`) no mapa `servicos`, sem prejudicar a exibição dos demais serviços nem das filas pendentes no RabbitMQ.
 
 ---
